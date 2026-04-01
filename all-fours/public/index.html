@@ -1,0 +1,798 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>All Fours</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    /* ── Reset & Tokens ─────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --felt:      #1a6b35;
+      --felt-dark: #0f4220;
+      --felt-rim:  #145228;
+      --gold:      #d4a017;
+      --gold-lt:   #f0c040;
+      --red:       #c0392b;
+      --blue:      #2471a3;
+      --card-bg:   #fdf8f0;
+      --card-shad: 0 3px 8px rgba(0,0,0,.45);
+      --text:      #e8f5e9;
+      --muted:     #8ab08f;
+      --radius:    10px;
+    }
+
+    html, body {
+      height: 100%; width: 100%;
+      background: var(--felt-dark);
+      font-family: system-ui, sans-serif;
+      color: var(--text);
+      overflow: hidden;
+    }
+
+    button {
+      cursor: pointer;
+      border: none;
+      border-radius: 8px;
+      font-size: .9rem;
+      font-weight: 600;
+      padding: .55rem 1.2rem;
+      transition: filter .15s, transform .1s;
+    }
+    button:active { transform: scale(.96); }
+
+    .btn-green  { background: #27ae60; color: #fff; }
+    .btn-red    { background: var(--red); color: #fff; }
+    .btn-yellow { background: var(--gold); color: #000; }
+    .btn-blue   { background: var(--blue); color: #fff; }
+    button:hover { filter: brightness(1.12); }
+
+    .hidden { display: none !important; }
+
+    /* ── Lobby ──────────────────────────────────────────────────── */
+    #screen-lobby {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      background:
+        radial-gradient(ellipse at 50% 0%, rgba(212,160,23,.15) 0%, transparent 60%),
+        var(--felt-dark);
+    }
+
+    .lobby-card {
+      background: rgba(15,66,32,.92);
+      border: 1px solid rgba(212,160,23,.3);
+      border-radius: 18px;
+      padding: 1.5rem 1.5rem;
+      width: min(400px, 96vw);
+      text-align: center;
+      box-shadow: 0 8px 32px rgba(0,0,0,.5);
+    }
+
+    .lobby-logo {
+      font-size: 2.2rem;
+      font-weight: 900;
+      color: var(--gold);
+      letter-spacing: .04em;
+      margin-bottom: .15rem;
+    }
+
+    .lobby-subtitle {
+      color: var(--muted);
+      font-size: .8rem;
+      margin-bottom: 1.1rem;
+    }
+
+    /* Name row */
+    .join-row {
+      display: flex;
+      gap: .5rem;
+      margin-bottom: 1.1rem;
+    }
+
+    #name-input {
+      flex: 1;
+      padding: .6rem .9rem;
+      border-radius: 8px;
+      border: 1px solid rgba(212,160,23,.4);
+      background: rgba(255,255,255,.08);
+      color: #fff;
+      font-size: 1rem;
+      outline: none;
+    }
+    #name-input::placeholder { color: var(--muted); }
+    #name-input:focus { border-color: var(--gold); }
+
+    /* Team name inputs */
+    .team-names-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: .5rem;
+      margin-bottom: 1rem;
+    }
+
+    .team-name-field {
+      display: flex;
+      flex-direction: column;
+      gap: .25rem;
+      text-align: left;
+    }
+
+    .team-name-field label {
+      font-size: .68rem;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    .label-a { color: #6ee09a; }
+    .label-b { color: #7ec8f5; }
+
+    .team-name-input {
+      padding: .5rem .75rem;
+      border-radius: 8px;
+      border: 2px solid transparent;
+      font-size: .9rem;
+      font-weight: 600;
+      color: #fff;
+      background: rgba(255,255,255,.08);
+      outline: none;
+      transition: border-color .2s;
+      width: 100%;
+    }
+
+    .team-name-input.input-a { border-color: rgba(39,174,96,.4); }
+    .team-name-input.input-a:focus { border-color: #27ae60; }
+    .team-name-input.input-b { border-color: rgba(52,152,219,.4); }
+    .team-name-input.input-b:focus { border-color: #2980b9; }
+    .team-name-input::placeholder { color: var(--muted); font-weight: 400; }
+
+    /* Seat picker */
+    .seat-picker-label {
+      font-size: .72rem;
+      font-weight: 600;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: .6rem;
+    }
+
+    /* Diamond layout: North top, South bottom, East right, West left */
+    .seat-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      grid-template-rows: auto auto auto;
+      grid-template-areas:
+        ".    north ."
+        "west .     east"
+        ".    south .";
+      gap: .4rem;
+      margin-bottom: 1rem;
+    }
+
+    .seat-north { grid-area: north; }
+    .seat-east  { grid-area: east;  }
+    .seat-south { grid-area: south; }
+    .seat-west  { grid-area: west;  }
+
+    .seat-btn {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: .25rem;
+      padding: .6rem .5rem;
+      border-radius: 10px;
+      border: 2px solid rgba(255,255,255,.12);
+      background: rgba(255,255,255,.05);
+      cursor: pointer;
+      transition: border-color .2s, background .2s, transform .1s;
+      min-width: 90px;
+    }
+
+    .seat-btn:hover:not(.seat-taken) {
+      border-color: var(--gold);
+      background: rgba(212,160,23,.1);
+    }
+
+    .seat-btn.seat-selected {
+      border-color: var(--gold);
+      background: rgba(212,160,23,.18);
+      box-shadow: 0 0 12px rgba(212,160,23,.35);
+    }
+
+    .seat-btn.seat-taken {
+      cursor: not-allowed;
+      opacity: .7;
+    }
+
+    .seat-btn .seat-icon { font-size: 1.3rem; }
+
+    .seat-btn .seat-name {
+      font-size: .78rem;
+      font-weight: 700;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 80px;
+    }
+
+    .seat-btn .seat-label {
+      font-size: .65rem;
+      color: var(--muted);
+    }
+
+    /* Team colours on seat buttons */
+    .seat-btn.team-a { border-color: rgba(39,174,96,.35); }
+    .seat-btn.team-a.seat-selected { border-color: #27ae60; background: rgba(39,174,96,.18); }
+    .seat-btn.team-b { border-color: rgba(52,152,219,.35); }
+    .seat-btn.team-b.seat-selected { border-color: #2980b9; background: rgba(52,152,219,.18); }
+
+    /* Connector lines between teammates (CSS-only, via a centre marker) */
+    .seat-team-legend {
+      display: flex;
+      justify-content: center;
+      gap: 1.2rem;
+      margin-bottom: .9rem;
+    }
+
+    .legend-dot {
+      display: flex;
+      align-items: center;
+      gap: .35rem;
+      font-size: .75rem;
+      color: var(--muted);
+    }
+
+    .legend-color {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+    }
+    .legend-color.a { background: #27ae60; }
+    .legend-color.b { background: #2980b9; }
+
+    #lobby-status {
+      color: var(--muted);
+      font-size: .8rem;
+      margin-bottom: .4rem;
+    }
+
+    .team-tag {
+      font-size: .7rem;
+      font-weight: 700;
+      border-radius: 999px;
+      padding: .15rem .55rem;
+    }
+    .team-a { background: rgba(39,174,96,.25); color: #6ee09a; }
+    .team-b { background: rgba(52,152,219,.25); color: #7ec8f5; }
+
+    #lobby-error {
+      margin-top: .5rem;
+      color: #e74c3c;
+      font-size: .82rem;
+    }
+
+    /* ── Game Screen ────────────────────────────────────────────── */
+    #screen-game {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    /* Score bar */
+    #score-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--felt-rim);
+      border-bottom: 1px solid rgba(212,160,23,.25);
+      padding: .4rem .9rem;
+      gap: .5rem;
+      flex-shrink: 0;
+    }
+
+    .score-team {
+      display: flex;
+      align-items: center;
+      gap: .4rem;
+      font-size: .85rem;
+    }
+
+    .score-label { color: var(--muted); }
+
+    .score-value {
+      font-size: 1.4rem;
+      font-weight: 800;
+      color: var(--text);
+      line-height: 1;
+    }
+
+    .score-goal { color: var(--muted); font-size: .75rem; }
+
+    .score-team.my-team .score-value { color: var(--gold); }
+
+    #trump-display {
+      text-align: center;
+      font-size: .75rem;
+    }
+    #trump-label { color: var(--muted); margin-bottom: .1rem; letter-spacing: .05em; text-transform: uppercase; }
+    #trump-card  { font-size: 1.2rem; font-weight: 700; }
+    #trump-card.red { color: var(--red); }
+    #trump-card.proposed { opacity: .7; }
+
+    /* Status */
+    #status-bar {
+      background: rgba(0,0,0,.25);
+      padding: .35rem .9rem;
+      flex-shrink: 0;
+      border-bottom: 1px solid rgba(255,255,255,.06);
+    }
+
+    #status-msg {
+      font-size: .82rem;
+      color: var(--muted);
+      text-align: center;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* Table */
+    #table {
+      display: grid;
+      grid-template-columns: 90px 1fr 90px;
+      grid-template-rows: auto 1fr auto;
+      grid-template-areas:
+        ".    top    ."
+        "left center right"
+        ".    bottom .";
+      flex: 1;
+      overflow: hidden;
+      padding: .5rem;
+      gap: .35rem;
+    }
+
+    /* Player positions */
+    .player-pos {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: .3rem;
+    }
+
+    .pos-top    { grid-area: top;    }
+    .pos-left   { grid-area: left;   writing-mode: vertical-lr; transform: rotate(180deg); }
+    .pos-right  { grid-area: right;  writing-mode: vertical-lr; }
+    .pos-bottom { grid-area: bottom; }
+
+    .pos-left, .pos-right {
+      align-items: center;
+      justify-content: center;
+    }
+
+    .player-info {
+      display: flex;
+      align-items: center;
+      gap: .35rem;
+      background: rgba(0,0,0,.25);
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 8px;
+      padding: .3rem .6rem;
+      font-size: .78rem;
+      transition: border-color .2s;
+      white-space: nowrap;
+    }
+
+    .player-info.active-player {
+      border-color: var(--gold);
+      box-shadow: 0 0 10px rgba(212,160,23,.4);
+    }
+
+    .player-info.disconnected { opacity: .45; }
+
+    .player-name { font-weight: 600; color: var(--text); }
+
+    .empty-seat {
+      font-size: .75rem;
+      color: var(--muted);
+      opacity: .5;
+    }
+
+    /* Side-player card backs — show count */
+    .cards-back-row {
+      display: flex;
+      gap: 2px;
+      flex-wrap: wrap;
+      justify-content: center;
+      max-width: 80px;
+    }
+
+    .card-back-sm {
+      width: 14px; height: 20px;
+      background: repeating-linear-gradient(
+        45deg, #1a3d8f, #1a3d8f 3px, #1e4db5 3px, #1e4db5 6px
+      );
+      border-radius: 3px;
+      border: 1px solid rgba(255,255,255,.2);
+    }
+
+    /* Center trick area */
+    #center { grid-area: center; display: flex; align-items: center; justify-content: center; }
+
+    #trick-area {
+      position: relative;
+      width: 190px; height: 190px;
+      background: rgba(0,0,0,.18);
+      border-radius: 50%;
+      border: 2px solid rgba(212,160,23,.2);
+    }
+
+    /* Trump proposal shown in trick area before begging resolves */
+    #trump-proposal {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: .3rem;
+    }
+
+    #trump-proposal-label {
+      font-size: .65rem;
+      color: var(--gold);
+      letter-spacing: .06em;
+      text-transform: uppercase;
+    }
+
+    /* Cards placed in trick */
+    .trick-slot {
+      position: absolute;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .trick-top    { top: 10px;  left: 50%; transform: translateX(-50%); }
+    .trick-bottom { bottom: 10px; left: 50%; transform: translateX(-50%); }
+    .trick-left   { left: 10px; top: 50%; transform: translateY(-50%); }
+    .trick-right  { right: 10px; top: 50%; transform: translateY(-50%); }
+
+    /* Cards */
+    .card {
+      background: var(--card-bg);
+      border: 1px solid #bbb;
+      border-radius: 8px;
+      width: 50px; height: 68px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 2px;
+      font-weight: 700;
+      box-shadow: var(--card-shad);
+      color: #111;
+      position: relative;
+      user-select: none;
+      transition: transform .15s, box-shadow .15s;
+      flex-shrink: 0;
+    }
+
+    .card.red { color: var(--red); }
+
+    .card-rank { font-size: .95rem; line-height: 1; }
+    .card-suit { font-size: 1.1rem; line-height: 1; }
+
+    .card.clickable {
+      cursor: pointer;
+      border-color: var(--gold);
+    }
+    .card.clickable:hover {
+      transform: translateY(-8px);
+      box-shadow: 0 8px 18px rgba(0,0,0,.5), 0 0 12px rgba(212,160,23,.4);
+    }
+
+    /* Your hand */
+    #hand-area {
+      background: rgba(0,0,0,.2);
+      border-top: 1px solid rgba(255,255,255,.07);
+      padding: .5rem .5rem .3rem;
+      flex-shrink: 0;
+      overflow-x: auto;
+    }
+
+    #my-hand {
+      display: flex;
+      gap: 6px;
+      justify-content: center;
+      padding-bottom: 2px;
+    }
+
+    /* Face-down card shown when this player can't see their hand during begging */
+    .card-face-down {
+      width: 50px; height: 68px;
+      border-radius: 8px;
+      background: repeating-linear-gradient(
+        45deg, #1a3d8f, #1a3d8f 4px, #1e4db5 4px, #1e4db5 8px
+      );
+      border: 2px solid rgba(255,255,255,.2);
+      box-shadow: var(--card-shad);
+    }
+
+    #hand-hidden-msg {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: .5rem;
+      font-size: .82rem;
+      color: var(--muted);
+      padding: .3rem 0;
+    }
+
+    /* Actions */
+    #action-bar {
+      background: var(--felt-rim);
+      border-top: 1px solid rgba(212,160,23,.2);
+      padding: .5rem .75rem;
+      flex-shrink: 0;
+      min-height: 52px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #actions {
+      display: flex;
+      gap: .5rem;
+      align-items: center;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .action-prompt {
+      font-size: .82rem;
+      color: var(--gold);
+      font-weight: 600;
+    }
+
+    /* Hand result overlay */
+    #hand-result {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.65);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 50;
+      backdrop-filter: blur(4px);
+    }
+
+    .result-card {
+      background: #0f4220;
+      border: 1px solid rgba(212,160,23,.4);
+      border-radius: 16px;
+      padding: 1.5rem 1.75rem;
+      width: min(340px, 92vw);
+      box-shadow: 0 12px 40px rgba(0,0,0,.6);
+    }
+
+    .result-card h3 {
+      color: var(--gold);
+      font-size: 1.1rem;
+      margin-bottom: 1rem;
+      text-align: center;
+      letter-spacing: .04em;
+    }
+
+    .result-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: .4rem 0;
+      border-bottom: 1px solid rgba(255,255,255,.08);
+      font-size: .88rem;
+    }
+
+    .result-row:last-child { border-bottom: none; }
+
+    .result-name  { color: var(--gold); font-weight: 700; }
+    .result-winner { color: var(--text); }
+
+    .result-scores {
+      margin-top: 1rem;
+      text-align: center;
+      font-size: .9rem;
+      color: var(--muted);
+    }
+
+    .game-over-banner {
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: var(--gold);
+      margin-bottom: .75rem;
+      text-align: center;
+    }
+
+    /* Error toast */
+    #game-error {
+      position: fixed;
+      bottom: 5rem;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--red);
+      color: #fff;
+      padding: .5rem 1.2rem;
+      border-radius: 999px;
+      font-size: .85rem;
+      font-weight: 600;
+      z-index: 100;
+      white-space: nowrap;
+      box-shadow: 0 4px 16px rgba(0,0,0,.4);
+    }
+
+    /* Bottom player label */
+    #me-info {
+      display: flex;
+      align-items: center;
+      gap: .4rem;
+      font-size: .78rem;
+    }
+
+    /* Responsive tweaks for very small screens */
+    @media (max-width: 360px) {
+      .card { width: 43px; height: 60px; }
+      .card-rank { font-size: .82rem; }
+      .card-suit { font-size: .95rem; }
+      #trick-area { width: 160px; height: 160px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Lobby Screen ──────────────────────────────────────────────── -->
+<div id="screen-lobby">
+  <div class="lobby-card">
+    <div class="lobby-logo">♠ All Fours</div>
+    <p class="lobby-subtitle">4 players · 2 teams · First to 11 points</p>
+
+    <!-- Step 1: Enter name -->
+    <div class="join-row">
+      <input id="name-input" type="text" placeholder="Enter your name" maxlength="20" autocomplete="off" />
+    </div>
+
+    <!-- Step 2: Name your teams -->
+    <div class="team-names-row">
+      <div class="team-name-field">
+        <label class="label-a">Team A name</label>
+        <input id="team-name-0" class="team-name-input input-a" type="text"
+               placeholder="Team A" maxlength="20" autocomplete="off" />
+      </div>
+      <div class="team-name-field">
+        <label class="label-b">Team B name</label>
+        <input id="team-name-1" class="team-name-input input-b" type="text"
+               placeholder="Team B" maxlength="20" autocomplete="off" />
+      </div>
+    </div>
+
+    <!-- Step 3: Pick a seat (teammates sit opposite each other) -->
+    <p class="seat-picker-label">Pick your seat — teammates sit opposite</p>
+
+    <div class="seat-team-legend">
+      <div class="legend-dot"><div class="legend-color a"></div>Team A (seats 1 &amp; 3)</div>
+      <div class="legend-dot"><div class="legend-color b"></div>Team B (seats 2 &amp; 4)</div>
+    </div>
+
+    <!--
+      Physical table layout:
+           [Seat 0 – Team A]  ← North
+      [Seat 3 – Team B]  [Seat 1 – Team B]
+           [Seat 2 – Team A]  ← South
+
+      Seats 0 & 2 = Team A (opposite)
+      Seats 1 & 3 = Team B (opposite)
+    -->
+    <div class="seat-grid">
+      <div class="seat-btn team-a seat-north" data-seat="0">
+        <span class="seat-icon">🪑</span>
+        <span class="seat-name" id="seat-name-0">Empty</span>
+        <span class="seat-label">Seat 1 · Team A</span>
+      </div>
+      <div class="seat-btn team-b seat-east" data-seat="1">
+        <span class="seat-icon">🪑</span>
+        <span class="seat-name" id="seat-name-1">Empty</span>
+        <span class="seat-label">Seat 2 · Team B</span>
+      </div>
+      <div class="seat-btn team-a seat-south" data-seat="2">
+        <span class="seat-icon">🪑</span>
+        <span class="seat-name" id="seat-name-2">Empty</span>
+        <span class="seat-label">Seat 3 · Team A</span>
+      </div>
+      <div class="seat-btn team-b seat-west" data-seat="3">
+        <span class="seat-icon">🪑</span>
+        <span class="seat-name" id="seat-name-3">Empty</span>
+        <span class="seat-label">Seat 4 · Team B</span>
+      </div>
+    </div>
+
+    <button id="join-btn" class="btn-green" style="width:100%;margin-bottom:.6rem">
+      Sit Down
+    </button>
+
+    <div id="lobby-status">Waiting for players...</div>
+    <div id="lobby-error" class="hidden"></div>
+  </div>
+</div>
+
+<!-- ── Game Screen ───────────────────────────────────────────────── -->
+<div id="screen-game" class="hidden">
+
+  <!-- Score Bar -->
+  <div id="score-bar">
+    <div class="score-team" id="score-team-a">
+      <span class="score-label" id="score-label-a">Team A</span>
+      <span class="score-value" id="score-a">0</span>
+      <span class="score-goal">/11</span>
+    </div>
+
+    <div id="trump-display">
+      <div id="trump-label">Trump</div>
+      <div id="trump-card">–</div>
+    </div>
+
+    <div class="score-team" id="score-team-b">
+      <span class="score-label" id="score-label-b">Team B</span>
+      <span class="score-value" id="score-b">0</span>
+      <span class="score-goal">/11</span>
+    </div>
+  </div>
+
+  <!-- Status -->
+  <div id="status-bar">
+    <div id="status-msg">Loading...</div>
+  </div>
+
+  <!-- Table -->
+  <div id="table">
+    <div id="pos-top"    class="player-pos pos-top"></div>
+    <div id="pos-left"   class="player-pos pos-left"></div>
+    <div id="center">
+      <div id="trick-area"></div>
+    </div>
+    <div id="pos-right"  class="player-pos pos-right"></div>
+    <div id="pos-bottom" class="player-pos pos-bottom">
+      <div id="me-info"></div>
+    </div>
+  </div>
+
+  <!-- Your Hand -->
+  <div id="hand-area">
+    <div id="my-hand"></div>
+  </div>
+
+  <!-- Action Buttons -->
+  <div id="action-bar">
+    <div id="actions"></div>
+  </div>
+
+  <!-- Hand Result Overlay -->
+  <div id="hand-result" class="hidden">
+    <div class="result-card">
+      <h3>Hand Result</h3>
+      <div id="result-breakdown"></div>
+      <div id="result-scores" class="result-scores"></div>
+    </div>
+  </div>
+
+  <!-- Error Toast -->
+  <div id="game-error" class="hidden"></div>
+
+</div>
+
+<script src="/game.js"></script>
+</body>
+</html>
